@@ -2,9 +2,9 @@ import 'dart:async';
 
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:hardware_buttons/hardware_buttons.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:wakelock/wakelock.dart';
 
 void main() => runApp(MyApp());
 
@@ -27,16 +27,17 @@ class Main extends StatefulWidget {
 }
 
 class _MainState extends State<Main> with WidgetsBindingObserver {
-  double _correction = 1;
-  String correctionKey = "correction";
-  double _stepCounter = 0;
-  double _globalCounter = 0;
-  String globalCounterKey = "globalCounter";
-  StreamSubscription _volumeButtonSubscription;
-  final Geolocator geolocator = Geolocator()..forceAndroidLocationManager;
-  StreamSubscription<Position> _positionStream;
+  DateTime _computationStartTimeStamp;
+  bool _listeningToPositions = false;
   Position _lastPosition;
   String _bearing = "---°";
+  double _correction = 1;
+  double _stepCounter = 0;
+  double _globalCounter = 0;
+  StreamSubscription<Position> _positionStream;
+  final String correctionKey = "correction";
+  final String globalCounterKey = "globalCounter";
+  final Geolocator geolocator = Geolocator();
 
   @override
   void initState() {
@@ -55,45 +56,25 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
-        print("app resumed");
-        _volumeButtonSubscription =
-            volumeButtonEvents.listen((VolumeButtonEvent event) {
-          if (event == VolumeButtonEvent.VOLUME_UP) {
-            _incrementCounter(100);
-          } else {
-            _decrementCounter(100);
-          }
-        });
-
-        _positionStream = geolocator
-            .getPositionStream(LocationOptions(
-                accuracy: LocationAccuracy.best, distanceFilter: 5))
-            .listen((Position position) {
-          print("new position with last available ${_lastPosition != null}");
-          if (_lastPosition == null) {
-            _lastPosition = position;
-          } else {
-            double distance = computeDistance(_lastPosition.latitude,
-                _lastPosition.longitude, position.latitude, position.longitude);
-            print("distance computed ${distance}");
-            int bearing = computeBearing(_lastPosition.latitude,
-                _lastPosition.longitude, position.latitude, position.longitude);
-            _lastPosition = position;
-            setState(() {
-              _bearing = "${bearing.toString()}°";
-              _stepCounter += distance * _correction;
-              _globalCounter += distance * _correction;
-            });
-            _storeValuesOnDisk();
-          }
-        });
+        print("App resumed at ${DateTime.now().toUtc()}");
+        Wakelock.enable();
+        if (!_listeningToPositions) {
+          _lastPosition = null;
+          _computationStartTimeStamp = DateTime.now().add(Duration(seconds: 5));
+          setState(() {
+            _bearing = "---°";
+          });
+          _subscribeToPositionUpdates();
+          _listeningToPositions = true;
+        }
         break;
-
       case AppLifecycleState.paused:
-        print("app paused");
-        _lastPosition = null;
-        _volumeButtonSubscription?.cancel();
-        _positionStream?.cancel();
+        print("App paused");
+        Wakelock.disable();
+        if (_listeningToPositions) {
+          _positionStream?.cancel();
+          _listeningToPositions = false;
+        }
         break;
       default:
     }
@@ -117,6 +98,41 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     prefs.setDouble(correctionKey, _correction);
     prefs.setDouble(globalCounterKey, _globalCounter);
+  }
+
+  void _subscribeToPositionUpdates() {
+    _positionStream = geolocator
+        .getPositionStream(LocationOptions(
+            accuracy: LocationAccuracy.bestForNavigation, distanceFilter: 5))
+        .listen((Position position) {
+      print("_lastPosition available ${_lastPosition != null}");
+      print("speed is: ${position.speed}");
+      print("latitude is: ${position.latitude}");
+      print("longitude is: ${position.longitude}");
+      print("timestamp is: ${position.timestamp.toUtc()}");
+
+      if (position.timestamp.isBefore(_computationStartTimeStamp)) {
+        _lastPosition = null;
+      } else if (_lastPosition == null) {
+        _lastPosition = position;
+      } else if (_lastPosition.latitude != position.latitude ||
+          _lastPosition.latitude != position.latitude) {
+        double distance = computeDistance(_lastPosition.latitude,
+            _lastPosition.longitude, position.latitude, position.longitude);
+        print("distance computed ${distance}");
+        print(
+            "speed computed ${distance / (position.timestamp.difference(_lastPosition.timestamp).inMilliseconds / 1000)}");
+        int bearing = computeBearing(_lastPosition.latitude,
+            _lastPosition.longitude, position.latitude, position.longitude);
+        _lastPosition = position;
+        setState(() {
+          _bearing = "${bearing.toString()}°";
+          _stepCounter += distance * _correction;
+          _globalCounter += distance * _correction;
+        });
+        _storeValuesOnDisk();
+      }
+    });
   }
 
   void _incrementCounter(int numberOfMeters) {
@@ -149,7 +165,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
         context: context,
         builder: (BuildContext context) {
           return SimpleDialog(
-            title: const Text('Sélectionner la correction de distance'),
+            title: const Text('Correction de distance :'),
             children: Correction.values
                 .map((correction) => SimpleDialogOption(
                       child: Text(
@@ -186,7 +202,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
         title: Center(
             child: Text(
           _bearing,
-          style: Theme.of(context).textTheme.display2,
+          style: Theme.of(context).textTheme.display3,
         )),
       ),
       body: Center(
@@ -196,19 +212,29 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: <Widget>[
-                IconButton(
-                  icon: Icon(Icons.remove),
-                  iconSize: 96,
-                  onPressed: () {
+                GestureDetector(
+                  onLongPress: () {
+                    _decrementCounter(100);
+                  },
+                  onTap: () {
                     _decrementCounter(10);
                   },
+                  child: IconButton(
+                    icon: Icon(Icons.remove),
+                    iconSize: 96,
+                  ),
                 ),
-                IconButton(
-                  icon: Icon(Icons.add),
-                  iconSize: 96,
-                  onPressed: () {
+                GestureDetector(
+                  onLongPress: () {
+                    _incrementCounter(100);
+                  },
+                  onTap: () {
                     _incrementCounter(10);
                   },
+                  child: IconButton(
+                    icon: Icon(Icons.add),
+                    iconSize: 96,
+                  ),
                 ),
               ],
             ),
