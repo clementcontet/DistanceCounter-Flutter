@@ -98,7 +98,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
   void _subscribeToPositionUpdates() {
     _positionStream = geolocator
         .getPositionStream(LocationOptions(
-            accuracy: LocationAccuracy.bestForNavigation, distanceFilter: 5))
+            accuracy: LocationAccuracy.bestForNavigation, distanceFilter: 10))
         .listen((Position position) {
       if (position.timestamp.isBefore(_computationStartTimeStamp)) {
         _lastPosition = null;
@@ -182,13 +182,16 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
     setState(() {
       _correction = correction;
     });
+    _storeValuesOnDisk();
   }
 
   void showCorrectionOptions() {
     showDialog(
         context: context,
         builder: (BuildContext context) {
-          return CorrectionOptions(widgetCorrection: _correction, widgetSetCorrection: _setCorrection);
+          return CorrectionOptions(
+              widgetCorrection: _correction,
+              widgetSetCorrection: _setCorrection);
         });
   }
 
@@ -301,10 +304,13 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
 }
 
 class CorrectionOptions extends StatefulWidget {
-  int widgetCorrection;
-  var widgetSetCorrection;
+  final int widgetCorrection;
+  final widgetSetCorrection;
 
-  CorrectionOptions({Key key, @required this.widgetCorrection, @required this.widgetSetCorrection})
+  CorrectionOptions(
+      {Key key,
+      @required this.widgetCorrection,
+      @required this.widgetSetCorrection})
       : super(key: key);
 
   @override
