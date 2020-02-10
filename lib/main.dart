@@ -13,9 +13,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Compteur distance',
-      theme: ThemeData(
-        primarySwatch: Colors.grey,
-      ),
+      theme: ThemeData.dark(),
       home: Main(),
     );
   }
@@ -31,7 +29,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
   bool _listeningToPositions = false;
   Position _lastPosition;
   String _bearing = "";
-  double _correction = 1;
+  int _correction = 100;
   double _stepCounter = 0;
   double _globalCounter = 0;
   StreamSubscription<Position> _positionStream;
@@ -80,10 +78,10 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
   void _getValuesFromDisk() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     setState(() {
-      _correction = prefs.getDouble(correctionKey);
+      _correction = prefs.getInt(correctionKey);
       _globalCounter = prefs.getDouble(globalCounterKey);
       if (_correction == null) {
-        _correction = 1;
+        _correction = 100;
       }
       if (_globalCounter == null) {
         _globalCounter = 0;
@@ -93,7 +91,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
 
   void _storeValuesOnDisk() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    prefs.setDouble(correctionKey, _correction);
+    prefs.setInt(correctionKey, _correction);
     prefs.setDouble(globalCounterKey, _globalCounter);
   }
 
@@ -102,12 +100,6 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
         .getPositionStream(LocationOptions(
             accuracy: LocationAccuracy.bestForNavigation, distanceFilter: 5))
         .listen((Position position) {
-      print("_lastPosition available ${_lastPosition != null}");
-      print("speed is: ${position.speed}");
-      print("latitude is: ${position.latitude}");
-      print("longitude is: ${position.longitude}");
-      print("timestamp is: ${position.timestamp.toUtc()}");
-
       if (position.timestamp.isBefore(_computationStartTimeStamp)) {
         _lastPosition = null;
         setState(() {
@@ -122,16 +114,13 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
           _lastPosition.latitude != position.latitude) {
         double distance = computeDistance(_lastPosition.latitude,
             _lastPosition.longitude, position.latitude, position.longitude);
-        print("distance computed ${distance}");
-        print(
-            "speed computed ${distance / (position.timestamp.difference(_lastPosition.timestamp).inMilliseconds / 1000)}");
         int bearing = computeBearing(_lastPosition.latitude,
             _lastPosition.longitude, position.latitude, position.longitude);
         _lastPosition = position;
         setState(() {
           _bearing = "${bearing.toString()}°";
-          _stepCounter += distance * _correction;
-          _globalCounter += distance * _correction;
+          _stepCounter += distance * _correction / 100;
+          _globalCounter += distance * _correction / 100;
         });
         _storeValuesOnDisk();
       }
@@ -189,30 +178,17 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
     _storeValuesOnDisk();
   }
 
+  void _setCorrection(int correction) {
+    setState(() {
+      _correction = correction;
+    });
+  }
+
   void showCorrectionOptions() {
-    showDialog<Correction>(
+    showDialog(
         context: context,
         builder: (BuildContext context) {
-          return SimpleDialog(
-            title: const Text('Correction de distance :'),
-            children: Correction.values
-                .map((correction) => SimpleDialogOption(
-                      child: Text(
-                        correctionName(correction),
-                        style: TextStyle(
-                            fontWeight:
-                                correctionValue(correction) == _correction
-                                    ? FontWeight.w900
-                                    : FontWeight.normal),
-                      ),
-                      onPressed: () {
-                        _correction = correctionValue(correction);
-                        _storeValuesOnDisk();
-                        Navigator.pop(context);
-                      },
-                    ))
-                .toList(),
-          );
+          return CorrectionOptions(widgetCorrection: _correction, widgetSetCorrection: _setCorrection);
         });
   }
 
@@ -268,14 +244,17 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
               ],
             ),
             GestureDetector(
-              onLongPress: () {
+              onTap: () {
                 setState(() {
                   _stepCounter = 0;
                 });
               },
               child: Text(
                 '${(_stepCounter / 1000).toStringAsFixed(2)}',
-                style: Theme.of(context).textTheme.display4,
+                style: Theme.of(context)
+                    .textTheme
+                    .display4
+                    .copyWith(fontWeight: FontWeight.w900),
               ),
             ),
             GestureDetector(
@@ -308,7 +287,10 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
               },
               child: Text(
                 '${(_globalCounter / 1000).toStringAsFixed(2)}',
-                style: Theme.of(context).textTheme.display4,
+                style: Theme.of(context)
+                    .textTheme
+                    .display4
+                    .copyWith(fontWeight: FontWeight.w900),
               ),
             ),
           ],
@@ -318,61 +300,58 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
   }
 }
 
-enum Correction {
-  c80,
-  c85,
-  c90,
-  c95,
-  c100,
-  c105,
-  c110,
-  c115,
-  c120,
+class CorrectionOptions extends StatefulWidget {
+  int widgetCorrection;
+  var widgetSetCorrection;
+
+  CorrectionOptions({Key key, @required this.widgetCorrection, @required this.widgetSetCorrection})
+      : super(key: key);
+
+  @override
+  _CorrectionOptionsState createState() =>
+      _CorrectionOptionsState(widgetCorrection, widgetSetCorrection);
 }
 
-String correctionName(Correction correction) {
-  switch (correction) {
-    case Correction.c80:
-      return "80%";
-    case Correction.c85:
-      return "85%";
-    case Correction.c90:
-      return "90%";
-    case Correction.c95:
-      return "95%";
-    case Correction.c100:
-      return "100%";
-    case Correction.c105:
-      return "105%";
-    case Correction.c110:
-      return "110%";
-    case Correction.c115:
-      return "115%";
-    case Correction.c120:
-      return "120%";
-  }
-}
+class _CorrectionOptionsState extends State<CorrectionOptions> {
+  int dialogCorrection;
+  var dialogSetCorrection;
 
-double correctionValue(Correction correction) {
-  switch (correction) {
-    case Correction.c80:
-      return 0.80;
-    case Correction.c85:
-      return 0.85;
-    case Correction.c90:
-      return 0.90;
-    case Correction.c95:
-      return 0.95;
-    case Correction.c100:
-      return 1.00;
-    case Correction.c105:
-      return 1.05;
-    case Correction.c110:
-      return 1.10;
-    case Correction.c115:
-      return 1.15;
-    case Correction.c120:
-      return 1.20;
+  _CorrectionOptionsState(this.dialogCorrection, this.dialogSetCorrection);
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Correction de distance :'),
+      content: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: <Widget>[
+          IconButton(
+            icon: Icon(Icons.remove),
+            iconSize: 48,
+            onPressed: () {
+              setState(() {
+                dialogCorrection--;
+              });
+              dialogSetCorrection(dialogCorrection);
+            },
+          ),
+          Text(
+            '$dialogCorrection %',
+            style: Theme.of(context).textTheme.display2,
+          ),
+          IconButton(
+            icon: Icon(Icons.add),
+            iconSize: 48,
+            onPressed: () {
+              setState(() {
+                dialogCorrection++;
+              });
+              dialogSetCorrection(dialogCorrection);
+            },
+          ),
+        ],
+      ),
+    );
   }
 }
 
