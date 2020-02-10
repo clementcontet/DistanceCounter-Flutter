@@ -30,7 +30,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
   DateTime _computationStartTimeStamp;
   bool _listeningToPositions = false;
   Position _lastPosition;
-  String _bearing = "---°";
+  String _bearing = "";
   double _correction = 1;
   double _stepCounter = 0;
   double _globalCounter = 0;
@@ -43,12 +43,24 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    Wakelock.enable();
+    _showPermissionStatus();
     _getValuesFromDisk();
+    if (!_listeningToPositions) {
+      _lastPosition = null;
+      _computationStartTimeStamp = DateTime.now().add(Duration(seconds: 5));
+      _subscribeToPositionUpdates();
+      _listeningToPositions = true;
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (_listeningToPositions) {
+      _positionStream?.cancel();
+      _listeningToPositions = false;
+    }
     super.dispose();
   }
 
@@ -56,25 +68,10 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     switch (state) {
       case AppLifecycleState.resumed:
-        print("App resumed at ${DateTime.now().toUtc()}");
         Wakelock.enable();
-        if (!_listeningToPositions) {
-          _lastPosition = null;
-          _computationStartTimeStamp = DateTime.now().add(Duration(seconds: 5));
-          setState(() {
-            _bearing = "---°";
-          });
-          _subscribeToPositionUpdates();
-          _listeningToPositions = true;
-        }
         break;
       case AppLifecycleState.paused:
-        print("App paused");
         Wakelock.disable();
-        if (_listeningToPositions) {
-          _positionStream?.cancel();
-          _listeningToPositions = false;
-        }
         break;
       default:
     }
@@ -113,8 +110,14 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
 
       if (position.timestamp.isBefore(_computationStartTimeStamp)) {
         _lastPosition = null;
+        setState(() {
+          _bearing = "..";
+        });
       } else if (_lastPosition == null) {
         _lastPosition = position;
+        setState(() {
+          _bearing = "...";
+        });
       } else if (_lastPosition.latitude != position.latitude ||
           _lastPosition.latitude != position.latitude) {
         double distance = computeDistance(_lastPosition.latitude,
@@ -132,6 +135,32 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
         });
         _storeValuesOnDisk();
       }
+    });
+  }
+
+  Future<void> _showPermissionStatus() async {
+    GeolocationStatus geolocationStatus =
+        await geolocator.checkGeolocationPermissionStatus();
+    String bearing = "";
+    switch (geolocationStatus) {
+      case GeolocationStatus.denied:
+        bearing = "!!!";
+        break;
+      case GeolocationStatus.disabled:
+        bearing = "N/A";
+        break;
+      case GeolocationStatus.granted:
+        bearing = ".";
+        break;
+      case GeolocationStatus.restricted:
+        bearing = "/!\\";
+        break;
+      case GeolocationStatus.unknown:
+        bearing = "???";
+        break;
+    }
+    setState(() {
+      _bearing = bearing;
     });
   }
 

@@ -43,5 +43,9 @@
 	<false/>
 	<key>NSLocationWhenInUseUsageDescription</key>
     <string>Nécessaire au calcul des distances.</string>
+    <key>NSLocationAlwaysUsageDescription</key>
+    <string>Nécessaire au calcul des distances.</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+    <string>Nécessaire au calcul des distances.</string>
 </dict>
 </plist>
