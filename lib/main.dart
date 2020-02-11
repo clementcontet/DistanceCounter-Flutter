@@ -54,7 +54,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
       _volumeButtonSubscription =
           volumeButtonEvents.listen((VolumeButtonEvent event) {
         setState(() {
-          _stepCounter = 100000;
+          _stepCounter = 0;
         });
       });
       _streamsSubscribed = true;
