@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:hardware_buttons/hardware_buttons.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock/wakelock.dart';
@@ -26,16 +27,18 @@ class Main extends StatefulWidget {
 
 class _MainState extends State<Main> with WidgetsBindingObserver {
   DateTime _computationStartTimeStamp;
-  bool _listeningToPositions = false;
+  bool _streamsSubscribed = false;
   Position _lastPosition;
   String _bearing = "";
   int _correction = 100;
   double _stepCounter = 0;
   double _globalCounter = 0;
   StreamSubscription<Position> _positionStream;
+  StreamSubscription _volumeButtonSubscription;
   final String correctionKey = "correction";
   final String globalCounterKey = "globalCounter";
   final Geolocator geolocator = Geolocator();
+  Timer _longPressTimer;
 
   @override
   void initState() {
@@ -44,20 +47,27 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
     Wakelock.enable();
     _showPermissionStatus();
     _getValuesFromDisk();
-    if (!_listeningToPositions) {
+    if (!_streamsSubscribed) {
       _lastPosition = null;
       _computationStartTimeStamp = DateTime.now().add(Duration(seconds: 5));
       _subscribeToPositionUpdates();
-      _listeningToPositions = true;
+      _volumeButtonSubscription =
+          volumeButtonEvents.listen((VolumeButtonEvent event) {
+        setState(() {
+          _stepCounter = 100000;
+        });
+      });
+      _streamsSubscribed = true;
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    if (_listeningToPositions) {
+    if (_streamsSubscribed) {
       _positionStream?.cancel();
-      _listeningToPositions = false;
+      _volumeButtonSubscription?.cancel();
+      _streamsSubscribed = false;
     }
     super.dispose();
   }
@@ -221,25 +231,33 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: <Widget>[
                 GestureDetector(
-                  onLongPress: () {
-                    _decrementCounter(100);
+                  onLongPressStart: (LongPressStartDetails details) {
+                    _longPressTimer = Timer.periodic(Duration(seconds: 1),
+                        (Timer t) => _decrementCounter(100));
                   },
-                  onTap: () {
-                    _decrementCounter(10);
+                  onLongPressEnd: (LongPressEndDetails details) {
+                    _longPressTimer?.cancel();
                   },
                   child: IconButton(
+                    onPressed: () {
+                      _decrementCounter(10);
+                    },
                     icon: Icon(Icons.remove),
                     iconSize: 96,
                   ),
                 ),
                 GestureDetector(
-                  onLongPress: () {
-                    _incrementCounter(100);
+                  onLongPressStart: (LongPressStartDetails details) {
+                    _longPressTimer = Timer.periodic(Duration(seconds: 1),
+                            (Timer t) => _incrementCounter(100));
                   },
-                  onTap: () {
-                    _incrementCounter(10);
+                  onLongPressEnd: (LongPressEndDetails details) {
+                    _longPressTimer?.cancel();
                   },
                   child: IconButton(
+                    onPressed: () {
+                      _incrementCounter(10);
+                    },
                     icon: Icon(Icons.add),
                     iconSize: 96,
                   ),
@@ -254,10 +272,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
               },
               child: Text(
                 '${(_stepCounter / 1000).toStringAsFixed(2)}',
-                style: Theme.of(context)
-                    .textTheme
-                    .display4
-                    .copyWith(fontWeight: FontWeight.w900),
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 80),
               ),
             ),
             GestureDetector(
@@ -290,10 +305,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
               },
               child: Text(
                 '${(_globalCounter / 1000).toStringAsFixed(2)}',
-                style: Theme.of(context)
-                    .textTheme
-                    .display4
-                    .copyWith(fontWeight: FontWeight.w900),
+                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 80),
               ),
             ),
           ],
@@ -333,7 +345,7 @@ class _CorrectionOptionsState extends State<CorrectionOptions> {
         children: <Widget>[
           IconButton(
             icon: Icon(Icons.remove),
-            iconSize: 48,
+            iconSize: 40,
             onPressed: () {
               setState(() {
                 dialogCorrection--;
@@ -343,11 +355,11 @@ class _CorrectionOptionsState extends State<CorrectionOptions> {
           ),
           Text(
             '$dialogCorrection %',
-            style: Theme.of(context).textTheme.display2,
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 28),
           ),
           IconButton(
             icon: Icon(Icons.add),
-            iconSize: 48,
+            iconSize: 40,
             onPressed: () {
               setState(() {
                 dialogCorrection++;
