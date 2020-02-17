@@ -30,7 +30,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
   bool _streamsSubscribed = false;
   Position _lastPosition;
   String _bearing = "";
-  int _correction = 100;
+  double _correction = 100;
   double _stepCounter = 0;
   double _globalCounter = 0;
   StreamSubscription<Position> _positionStream;
@@ -88,7 +88,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
   void _getValuesFromDisk() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     setState(() {
-      _correction = prefs.getInt(correctionKey);
+      _correction = prefs.getDouble(correctionKey);
       _globalCounter = prefs.getDouble(globalCounterKey);
       if (_correction == null) {
         _correction = 100;
@@ -101,7 +101,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
 
   void _storeValuesOnDisk() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
-    prefs.setInt(correctionKey, _correction);
+    prefs.setDouble(correctionKey, _correction);
     prefs.setDouble(globalCounterKey, _globalCounter);
   }
 
@@ -129,8 +129,8 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
         _lastPosition = position;
         setState(() {
           _bearing = "${bearing.toString()}°";
-          _stepCounter += distance * _correction / 100;
-          _globalCounter += distance * _correction / 100;
+          _stepCounter += distance;
+          _globalCounter += distance;
         });
         _storeValuesOnDisk();
       }
@@ -165,30 +165,14 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
 
   void _incrementCounter(int numberOfMeters) {
     setState(() {
-      _stepCounter = ((_stepCounter / numberOfMeters).floor().toDouble() + 1) *
-          numberOfMeters;
-      _globalCounter =
-          ((_globalCounter / numberOfMeters).floor().toDouble() + 1) *
-              numberOfMeters;
+      double increment = numberOfMeters.toDouble() / _correction * 100;
+      _stepCounter = max(0, _stepCounter + increment);
+      _globalCounter = max(0, _globalCounter + increment);
     });
     _storeValuesOnDisk();
   }
 
-  void _decrementCounter(int numberOfMeters) {
-    setState(() {
-      _stepCounter = max(
-          0,
-          ((_stepCounter / numberOfMeters).ceil().toDouble() - 1) *
-              numberOfMeters);
-      _globalCounter = max(
-          0,
-          ((_globalCounter / numberOfMeters).ceil().toDouble() - 1) *
-              numberOfMeters);
-    });
-    _storeValuesOnDisk();
-  }
-
-  void _setCorrection(int correction) {
+  void _setCorrection(double correction) {
     setState(() {
       _correction = correction;
     });
@@ -233,14 +217,14 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
                 GestureDetector(
                   onLongPressStart: (LongPressStartDetails details) {
                     _longPressTimer = Timer.periodic(Duration(seconds: 1),
-                        (Timer t) => _decrementCounter(100));
+                        (Timer t) => _incrementCounter(-100));
                   },
                   onLongPressEnd: (LongPressEndDetails details) {
                     _longPressTimer?.cancel();
                   },
                   child: IconButton(
                     onPressed: () {
-                      _decrementCounter(10);
+                      _incrementCounter(-10);
                     },
                     icon: Icon(Icons.remove),
                     iconSize: 96,
@@ -249,7 +233,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
                 GestureDetector(
                   onLongPressStart: (LongPressStartDetails details) {
                     _longPressTimer = Timer.periodic(Duration(seconds: 1),
-                            (Timer t) => _incrementCounter(100));
+                        (Timer t) => _incrementCounter(100));
                   },
                   onLongPressEnd: (LongPressEndDetails details) {
                     _longPressTimer?.cancel();
@@ -271,7 +255,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
                 });
               },
               child: Text(
-                '${(_stepCounter / 1000).toStringAsFixed(2)}',
+                '${(_stepCounter * _correction / 100 / 1000).toStringAsFixed(2)}',
                 style: TextStyle(fontWeight: FontWeight.w900, fontSize: 80),
               ),
             ),
@@ -304,7 +288,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
                 );
               },
               child: Text(
-                '${(_globalCounter / 1000).toStringAsFixed(2)}',
+                '${(_globalCounter * _correction / 100 / 1000).toStringAsFixed(2)}',
                 style: TextStyle(fontWeight: FontWeight.w900, fontSize: 80),
               ),
             ),
@@ -316,7 +300,7 @@ class _MainState extends State<Main> with WidgetsBindingObserver {
 }
 
 class CorrectionOptions extends StatefulWidget {
-  final int widgetCorrection;
+  final double widgetCorrection;
   final widgetSetCorrection;
 
   CorrectionOptions(
@@ -331,10 +315,18 @@ class CorrectionOptions extends StatefulWidget {
 }
 
 class _CorrectionOptionsState extends State<CorrectionOptions> {
-  int dialogCorrection;
+  double dialogCorrection;
   var dialogSetCorrection;
+  Timer _longPressTimer;
 
   _CorrectionOptionsState(this.dialogCorrection, this.dialogSetCorrection);
+
+  void _incrementCorrection(double correctionModification) {
+    setState(() {
+      dialogCorrection += correctionModification;
+    });
+    dialogSetCorrection(dialogCorrection);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -343,29 +335,41 @@ class _CorrectionOptionsState extends State<CorrectionOptions> {
       content: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: <Widget>[
-          IconButton(
-            icon: Icon(Icons.remove),
-            iconSize: 40,
-            onPressed: () {
-              setState(() {
-                dialogCorrection--;
-              });
-              dialogSetCorrection(dialogCorrection);
+          GestureDetector(
+            onLongPressStart: (LongPressStartDetails details) {
+              _longPressTimer = Timer.periodic(
+                  Duration(seconds: 1), (Timer t) => _incrementCorrection(-1));
             },
+            onLongPressEnd: (LongPressEndDetails details) {
+              _longPressTimer?.cancel();
+            },
+            child: IconButton(
+              onPressed: () {
+                _incrementCorrection(-0.1);
+              },
+              icon: Icon(Icons.remove),
+              iconSize: 40,
+            ),
           ),
           Text(
-            '$dialogCorrection %',
+            '${dialogCorrection.toStringAsFixed(1)}',
             style: TextStyle(fontWeight: FontWeight.bold, fontSize: 28),
           ),
-          IconButton(
-            icon: Icon(Icons.add),
-            iconSize: 40,
-            onPressed: () {
-              setState(() {
-                dialogCorrection++;
-              });
-              dialogSetCorrection(dialogCorrection);
+          GestureDetector(
+            onLongPressStart: (LongPressStartDetails details) {
+              _longPressTimer = Timer.periodic(
+                  Duration(seconds: 1), (Timer t) => _incrementCorrection(1));
             },
+            onLongPressEnd: (LongPressEndDetails details) {
+              _longPressTimer?.cancel();
+            },
+            child: IconButton(
+              onPressed: () {
+                _incrementCorrection(0.1);
+              },
+              icon: Icon(Icons.add),
+              iconSize: 40,
+            ),
           ),
         ],
       ),
